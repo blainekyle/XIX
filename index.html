@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XIX.α0</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+    <style>
+        body, html {
+            background-color: #000;
+            margin: 0;
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            font-family: 'Inter', sans-serif;
+            color: #d1d5db;
+        }
+        .panel {
+            border: 3px solid #6b7280;
+            border-radius: 20px;
+            background-color: rgba(17, 24, 39, 0.85);
+            backdrop-filter: blur(8px);
+            position: fixed;
+            z-index: 60;
+            box-shadow: 0 0 0 0 rgba(0, 255, 255, 0);
+            transition: box-shadow 0.3s ease-in-out, opacity 0.5s ease;
+            padding: 1.5rem; 
+        }
+        body:hover .panel.interactive-panel {
+            box-shadow: 0 0 15px 5px rgba(0, 255, 255, 0.4), inset 0 0 15px 5px rgba(236, 72, 153, 0.3);
+        }
+        .hidden-on-start {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        #background-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%; /* Stretch to fill viewport */
+            height: 100%; /* Stretch to fill viewport */
+            z-index: 1;
+            filter: blur(15px); /* Add a heavy blur */
+            transform: scale(1.1); /* Scale up slightly to hide blurred edges */
+        }
+        #daw-panel {
+            top: 1rem;
+            left: 1rem;
+            right: 1rem;
+            height: 280px;
+            display: none; /* Panel is hidden as requested */
+            flex-direction: column; 
+        }
+        #daw-content {
+            display: flex;
+            gap: 1rem;
+            flex-grow: 1;
+            min-height: 0;
+        }
+        #instrument-panel {
+            bottom: 0;
+            right: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 50;
+            pointer-events: none;
+            border: none;
+            background: none;
+            box-shadow: none;
+        }
+        #instrument-panel > * { pointer-events: auto; }
+        #metronome-panel {
+            bottom: 2vw;
+            left: 2vw;
+            width: 300px;
+        }
+        #visualizer-wrapper {
+            position: absolute;
+            bottom: 2vw;
+            right: 2vw;
+            transform: scale(0.4);
+            transform-origin: bottom right;
+        }
+        .clip { background-color: #374151; padding: 0.5rem; border-radius: 8px; margin-bottom: 0.5rem; cursor: grab; text-align: center; }
+        #timeline-panel { flex-grow: 1; display: flex; flex-direction: column; gap: 0.5rem; position: relative; overflow: hidden;}
+        #playhead { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background-color: #38bdf8; box-shadow: 0 0 10px #38bdf8; z-index: 10; pointer-events: none; }
+        .track { background-color: #1f2937; height: 50px; border-radius: 8px; position: relative; }
+        .timeline-clip { background-color: #f9a8d4; position: absolute; height: 100%; border-radius: 8px; border: 1px solid #ec4899; box-sizing: border-box; cursor: grab; }
+        #transport-panel { flex-shrink: 0; display: flex; justify-content: center; gap: 1rem; padding-top: 1rem; }
+        .transport-btn { background-color: #4b5563; color: white; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; } 
+        @keyframes pulsate-red { 0% { box-shadow: 0 0 5px #ef4444, inset 0 0 5px rgba(255,255,255,0.2); } 50% { box-shadow: 0 0 20px #ef4444, inset 0 0 10px rgba(255,255,255,0.2); } 100% { box-shadow: 0 0 5px #ef4444, inset 0 0 5px rgba(255,255,255,0.2); } }
+        .transport-btn.recording { background-color: #ef4444; animation: pulsate-red 2s infinite; }
+        .controller-body-outline { position: absolute; width: 1000px; height: 650px; top: 50%; left: 50%; transform: translate(-50%, -50%); border-radius: 120px; border: 3px solid #6b7280; }
+        .overlay-button { position: absolute; transition: all 0.1s ease-in-out; transform: translate(-50%, -50%); border: 2px solid #6b7280; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: bold; color: #6b7280; }
+        .round-button { border-radius: 9999px; aspect-ratio: 1 / 1; } .rect-button { border-radius: 10px; }
+        .overlay-button.active { background-color: var(--glow-color, rgba(255,255,255,0.7)); border-color: var(--glow-color, rgba(255,255,255,0.7)); transform: translate(-50%, -50%) scale(1.1); color: #111827; }
+        .stick-base { position: absolute; border-radius: 50%; transform: translate(-50%, -50%); aspect-ratio: 1 / 1; border: 2px solid #6b7280; }
+        .stick-thumb { position: absolute; top: 50%; left: 50%; width: 50%; height: 50%; background-color: rgba(107, 114, 128, 0.5); border: 2px solid #6b7280; border-radius: 50%; transform: translate(-50%, -50%); transition: background-color: 0.1s; }
+        .stick-thumb.pressed { background-color: rgba(96, 165, 250, 1); border-color: rgba(147, 197, 253, 1); }
+        .meter-container { display: flex; flex-direction: column; align-items: center; color: #9ca3af; }
+        .meter-bar { width: 40px; height: 200px; background-color: #374151; border: 2px solid #4b5563; border-radius: 10px; margin-top: 0.5rem; position: relative; overflow: hidden; display: flex; flex-direction: column-reverse; }
+        .meter-fill { width: 100%; background-color: #60a5fa; transition: height 0.05s linear; } .meter-label { font-size: 1.25rem; font-weight: 600; }
+        .control-dial { -webkit-appearance: none; appearance: none; width: 100%; height: 8px; background: #4b5563; border-radius: 5px; outline: none; }
+        .control-dial::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; background: #9ca3af; border-radius: 50%; cursor: pointer; } .control-dial::-moz-range-thumb { width: 20px; height: 20px; background: #9ca3af; border-radius: 50%; cursor: pointer; }
+        .control-label { color: #9ca3af; } 
+        #metro-play-stop.playing { background-color: #22c55e; }
+    </style>
+</head>
+<body>
+    <canvas id="background-canvas"></canvas>
+    <div id="status" class="absolute top-4 left-1/2 -translate-x-1/2 text-gray-500">Click or press a controller button to start.</div>
+
+    <div id="daw-panel" class="panel hidden-on-start interactive-panel">
+        <div id="daw-content">
+            <div id="clip-bin" class="w-1/5 h-full overflow-y-auto bg-black/20 rounded-lg p-2"></div>
+            <div id="timeline-panel">
+                 <div id="playhead"></div>
+                <div class="track" data-track-id="0"></div><div class="track" data-track-id="1"></div><div class="track" data-track-id="2"></div>
+            </div>
+        </div>
+        <div id="transport-panel"><button id="play-btn" class="transport-btn">Play</button><button id="stop-btn" class="transport-btn">Stop</button><button id="record-btn" class="transport-btn"><span>Record</span><span class="hidden text-xl leading-none">&#9632;</span></button></div>
+    </div>
+    
+    <div id="instrument-panel">
+        <div id="metronome-panel" class="panel space-y-4 hidden-on-start interactive-panel">
+            <!-- New Metronome UI -->
+            <div class="flex justify-between items-center">
+                <span id="metro-bpm-display" class="control-label text-lg font-semibold">120 BPM</span>
+                <button id="metro-play-stop" class="transport-btn">Play</button>
+            </div>
+            <div class="space-y-3 pt-2">
+                <div><label class="control-label">BPM</label><input type="range" id="metro-bpm-slider" min="40" max="240" value="120" class="control-dial"></div>
+                <div><label class="control-label">Volume</label><input type="range" id="metro-volume-slider" min="-40" max="0" value="-12" step="1" class="control-dial"></div>
+                <div><label class="control-label">Pitch</label><input type="range" id="metro-pitch-slider" min="200" max="1200" value="800" step="50" class="control-dial"></div>
+                <div><label class="control-label">Attack</label><input type="range" id="metro-attack-slider" min="0.001" max="0.2" value="0.01" step="0.001" class="control-dial"></div>
+                <div><label class="control-label">Sustain</label><input type="range" id="metro-sustain-slider" min="0.1" max="0.5" value="0.2" step="0.01" class="control-dial"></div>
+                <div><label class="control-label">Release</label><input type="range" id="metro-release-slider" min="0.1" max="1.0" value="0.2" step="0.01" class="control-dial"></div>
+            </div>
+        </div>
+        <div id="visualizer-wrapper" class="hidden-on-start">
+             <div class="flex items-center justify-center space-x-8">
+                <div class="meter-container"><div class="meter-label">LT</div><div class="meter-bar"><div id="lt-fill" class="meter-fill"></div></div></div>
+                <div class="panel relative w-[1200px] h-[900px] mx-auto p-0 !border-none !bg-transparent !backdrop-filter-none !shadow-none"><div class="controller-body-outline"></div><div id="btn-y" class="overlay-button round-button" style="top: 270px; left: 932px; width: 55px; --glow-color: rgba(252, 211, 77, 0.7);">Y</div><div id="btn-x" class="overlay-button round-button" style="top: 360px; left: 838px; width: 55px; --glow-color: rgba(96, 165, 250, 0.7);">X</div><div id="btn-b" class="overlay-button round-button" style="top: 360px; left: 1026px; width: 55px; --glow-color: rgba(248, 113, 113, 0.7);">B</div><div id="btn-a" class="overlay-button round-button" style="top: 450px; left: 932px; width: 55px; --glow-color: rgba(52, 211, 153, 0.7);">A</div><div id="btn-back" class="overlay-button round-button" style="top: 366px; left: 472px; width: 30px;"></div><div id="btn-start" class="overlay-button round-button" style="top: 366px; left: 728px; width: 30px;"></div><div id="btn-guide" class="overlay-button round-button" style="top: 368px; left: 600px; width: 65px;"></div><div id="btn-lb" class="overlay-button rect-button" style="top: 135px; left: 295px; width: 120px; height: 40px;"></div><div id="btn-rb" class="overlay-button rect-button" style="top: 135px; left: 905px; width: 120px; height: 40px;"></div><div id="dp-up" class="overlay-button round-button" style="top: 486px; left: 342px; width: 35px;"></div><div id="dp-down" class="overlay-button round-button" style="top: 574px; left: 342px; width: 35px;"></div><div id="dp-left" class="overlay-button round-button" style="top: 530px; left: 298px; width: 35px;"></div><div id="dp-right" class="overlay-button round-button" style="top: 530px; left: 386px; width: 35px;"></div><div id="ls-base" class="stick-base" style="top: 368px; left: 342px; width: 110px;"><div id="ls-thumb" class="stick-thumb"></div></div><div id="rs-base" class="stick-base" style="top: 542px; left: 834px; width: 110px;"><div id="rs-thumb" class="stick-thumb"></div></div></div>
+                <div class="meter-container"><div class="meter-label">RT</div><div class="meter-bar"><div id="rt-fill" class="meter-fill"></div></div></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const statusDisplay = document.getElementById('status');
+        const dawPanel = document.getElementById('daw-panel');
+        const visualizerWrapper = document.getElementById('visualizer-wrapper');
+        const metronomePanel = document.getElementById('metronome-panel');
+        const bgCanvas = document.getElementById('background-canvas');
+        const bgCtx = bgCanvas.getContext('2d');
+        
+        let controllerIndex = null;
+        let animationFrameId = null;
+        let audioReady = false;
+        let padSynth, kickSynth, cymbalSynth, inceptionSynth, wobbleSynth, wobbleFilter, metroSynth;
+        let particles = [];
+        const MAX_PARTICLES = 360;
+        const neonColors = ['#00aaff', '#ff00ff', '#00ff00', '#ffff00', '#ff6600', '#ff0066'];
+        const previousButtonState = new Array(17).fill(false);
+        
+        let isRecording = false;
+        let recordingStartTime = 0;
+        let currentRecording = [];
+        let recordedClips = [];
+        let scheduledParts = [];
+        const TOTAL_TIMELINE_SECONDS = 16; 
+
+        const elements = {
+            buttons: [
+                document.getElementById('btn-a'), document.getElementById('btn-b'), document.getElementById('btn-x'), document.getElementById('btn-y'),
+                document.getElementById('btn-lb'), document.getElementById('btn-rb'), null, null,
+                document.getElementById('btn-back'), document.getElementById('btn-start'), document.getElementById('ls-thumb'), document.getElementById('rs-thumb'),
+                document.getElementById('dp-up'), document.getElementById('dp-down'), document.getElementById('dp-left'), document.getElementById('dp-right'),
+                document.getElementById('btn-guide'),
+            ],
+            sticks: { ls: document.getElementById('ls-thumb'), rs: document.getElementById('rs-thumb'), },
+            triggers: { ltFill: document.getElementById('lt-fill'), rtFill: document.getElementById('rt-fill'), },
+            metro: { // New metronome elements
+                playStopBtn: document.getElementById('metro-play-stop'),
+                bpmSlider: document.getElementById('metro-bpm-slider'),
+                bpmDisplay: document.getElementById('metro-bpm-display'),
+                volumeSlider: document.getElementById('metro-volume-slider'),
+                pitchSlider: document.getElementById('metro-pitch-slider'),
+                attackSlider: document.getElementById('metro-attack-slider'),
+                sustainSlider: document.getElementById('metro-sustain-slider'),
+                releaseSlider: document.getElementById('metro-release-slider'),
+            },
+            daw: {
+                clipBin: document.getElementById('clip-bin'),
+                timelinePanel: document.getElementById('timeline-panel'),
+                playhead: document.getElementById('playhead'),
+                recordBtn: document.getElementById('record-btn'),
+                playBtn: document.getElementById('play-btn'),
+                stopBtn: document.getElementById('stop-btn'),
+            }
+        }; 
+        
+        const noteMap = [
+            ['C3', 'E3', 'G3'], ['E3', 'G3', 'B3'], ['G3', 'B3', 'D4'], ['B3', 'D4', 'F#4'],
+            null, null, null, null, 'A4', 'G4', null, null, 'F4', 'A4', 'C5', 'E5'
+        ];
+
+        function resizeCanvases() {
+            // Set the background canvas to a fixed low resolution
+            bgCanvas.width = 320;
+            bgCanvas.height = 240;
+        }
+
+        function createBurst(x, y, color) {
+            const particleCount = 20 + Math.random() * 20;
+            if (particles.length + particleCount > MAX_PARTICLES) {
+                particles.splice(0, particleCount);
+            }
+            for (let i = 0; i < particleCount; i++) {
+                // Generate particles within the new 320x240 coordinate space
+                particles.push({ x, y, vx: (Math.random() - 0.5) * 4, vy: (Math.random() - 0.5) * 4, life: Math.random() * 2 + 3, color, size: Math.random() * 3 + 1, });
+            }
+        }
+
+        function animateParticles() {
+            bgCtx.globalCompositeOperation = 'source-over';
+            bgCtx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+            bgCtx.globalCompositeOperation = 'lighter';
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.04;
+                p.life -= 0.01;
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                    continue;
+                }
+                bgCtx.globalAlpha = p.life > 1 ? 1 : p.life;
+                bgCtx.fillStyle = p.color;
+                bgCtx.shadowColor = p.color;
+                bgCtx.shadowBlur = 15;
+                bgCtx.beginPath();
+                bgCtx.arc(p.x, p.y, p.size || 2, 0, Math.PI * 2);
+                bgCtx.fill();
+            }
+        }
+
+        function updatePlayhead() {
+            if (!audioReady || !elements.daw.playhead || Tone.Transport.state !== 'started') return;
+            const progress = Tone.Transport.progress;
+            elements.daw.playhead.style.left = `${progress * 100}%`;
+        }
+
+        function handleControllerState(gamepad) {
+            try {
+                gamepad.buttons.forEach((button, i) => {
+                    const isPressed = button.pressed;
+                    const wasPressed = previousButtonState[i];
+                    if (isPressed && !wasPressed) {
+                        // Create burst in the center of the low-res canvas for effect
+                        createBurst(bgCanvas.width / 2, bgCanvas.height / 2, neonColors[Math.floor(Math.random() * neonColors.length)]);
+                        if (!audioReady) return;
+                        if (noteMap[i]) padSynth.triggerAttack(noteMap[i]);
+                        if (i === 4) wobbleSynth.triggerAttack("C1");
+                        if (i === 5) inceptionSynth.triggerAttack("C2");
+                        if (i === 10) kickSynth.triggerAttackRelease("C2", "8n");
+                        if (i === 11) cymbalSynth.triggerAttackRelease("C5", "4n");
+                        recordEvent({ type: 'button-down', index: i });
+                    } else if (!isPressed && wasPressed) {
+                        if (!audioReady) return;
+                        if (noteMap[i]) padSynth.triggerRelease(noteMap[i]);
+                        if (i === 4) wobbleSynth.triggerRelease();
+                        if (i === 5) inceptionSynth.triggerRelease("C2");
+                        recordEvent({ type: 'button-up', index: i });
+                    }
+                    previousButtonState[i] = isPressed;
+                    const element = elements.buttons[i];
+                    if (element) element.classList.toggle((i === 10 || i === 11) ? 'pressed' : 'active', isPressed);
+                });
+                const ltValue = gamepad.buttons[6].value;
+                const rtValue = gamepad.buttons[7].value;
+                if (audioReady && padSynth) padSynth.set({ detune: (rtValue - ltValue) * 1200 });
+                if (audioReady && wobbleSynth && wobbleSynth.state === "started") {
+                    if (wobbleFilter) {
+                        wobbleFilter.frequency.value = 2 + Math.abs(gamepad.axes[2]) * 8;
+                        wobbleFilter.depth.value = Math.abs(gamepad.axes[3]);
+                    }
+                }
+                elements.triggers.ltFill.style.height = `${ltValue * 100}%`;
+                elements.triggers.rtFill.style.height = `${rtValue * 100}%`;
+                elements.sticks.ls.style.transform = `translate(calc(-50% + ${gamepad.axes[0] * 50}%), calc(-50% + ${gamepad.axes[1] * 50}%))`;
+                elements.sticks.rs.style.transform = `translate(calc(-50% + ${gamepad.axes[2] * 50}%), calc(-50% + ${gamepad.axes[3] * 50}%))`;
+            } catch (e) {
+                console.error("Error in controller state handling:", e);
+            }
+        }
+
+        function handleDisconnect() {
+            controllerIndex = null;
+            statusDisplay.textContent = 'Controller Disconnected';
+            statusDisplay.style.color = '#4b5563';
+            [dawPanel, metronomePanel, visualizerWrapper].forEach(el => el.classList.remove('visible'));
+            [dawPanel, metronomePanel, visualizerWrapper].forEach(el => el.classList.add('hidden-on-start'));
+        }
+
+        async function initAudio() {
+            if (audioReady) return;
+            console.log("DEBUG: Attempting to start Tone.js...");
+            try {
+                await Tone.start();
+                const reverb = new Tone.Reverb(3).toDestination();
+                const mainGain = new Tone.Gain(0.7).connect(reverb);
+                
+                // Main instrument synths
+                padSynth = new Tone.PolySynth(Tone.Synth, { oscillator: { type: "fatsawtooth", count: 3, spread: 40 }, envelope: { attack: 0.2, decay: 0.1, sustain: 0.8, release: 1.0 } }).connect(mainGain);
+                kickSynth = new Tone.MembraneSynth({ pitchDecay: 0.01, octaves: 6, oscillator: { type: 'sine' }, envelope: { attack: 0.001, decay: 0.3, sustain: 0.01, release: 0.2 } }).connect(mainGain);
+                kickSynth.volume.value = 6;
+                cymbalSynth = new Tone.MetalSynth({ frequency: 250, envelope: { attack: 0.001, decay: 0.2, release: 0.1 }, harmonicity: 8.1, modulationIndex: 20, resonance: 3000, octaves: 1.5 }).connect(mainGain);
+                cymbalSynth.volume.value = -6;
+                inceptionSynth = new Tone.PolySynth(Tone.Synth, { oscillator: { type: 'fatsquare', count: 5, spread: 60 }, envelope: { attack: 1.5, decay: 0.5, sustain: 1, release: 2 } }).connect(mainGain);
+                wobbleFilter = new Tone.AutoFilter({ frequency: 1, depth: 1, baseFrequency: 200, octaves: 2.6 }).connect(mainGain);
+                wobbleSynth = new Tone.MonoSynth({ oscillator: { type: 'fmsquare', modulationType: 'sawtooth' }, envelope: { attack: 0.01, decay: 0.1, sustain: 0.9, release: 1 }, filter: { Q: 2, type: 'lowpass', rolloff: -24 }, filterEnvelope: { attack: 0.01, decay: 0.2, sustain: 0.5, release: 2, baseFrequency: 100, octaves: 5 } }).connect(wobbleFilter);
+                
+                // New Metronome Synth
+                metroSynth = new Tone.Synth({
+                    oscillator: { type: 'sine' },
+                    envelope: {
+                        attack: 0.01,
+                        sustain: 0.2,
+                        release: 0.2,
+                    }
+                }).toDestination();
+                metroSynth.volume.value = -12;
+
+                // Metronome Loop
+                new Tone.Loop(time => {
+                    metroSynth.triggerAttackRelease(elements.metro.pitchSlider.value, '8n', time);
+                }, "4n").start(0);
+
+                // Set initial transport BPM, but don't start it.
+                Tone.Transport.bpm.value = 120;
+                
+                audioReady = true;
+                console.log("DEBUG: Audio Initialized.");
+            } catch (e) {
+                console.error("DEBUG: Audio initialization failed:", e);
+                statusDisplay.textContent = "Error starting audio. Please refresh.";
+            }
+        }
+
+        function setupEventListeners() {
+            window.addEventListener('gamepadconnected', async (e) => {
+                console.log("DEBUG: Gamepad connected event fired.");
+                if (controllerIndex !== null) return;
+                controllerIndex = e.gamepad.index;
+                await initAudio(); // Ensure audio is ready before showing UI
+                if(audioReady) {
+                    statusDisplay.textContent = `Controller Connected: ${e.gamepad.id}`;
+                    statusDisplay.style.color = '#4ade80';
+                    [dawPanel, metronomePanel, visualizerWrapper].forEach(el => el.classList.remove('hidden-on-start'));
+                }
+            });
+            window.addEventListener('gamepaddisconnected', (e) => {
+                if (e.gamepad.index === controllerIndex) handleDisconnect();
+            });
+            document.body.addEventListener('click', async () => {
+                await initAudio();
+            }, { once: true });
+
+            // --- New Metronome Event Listeners ---
+            elements.metro.playStopBtn.addEventListener('click', () => {
+                if (!audioReady) return;
+                if (Tone.Transport.state === 'started') {
+                    Tone.Transport.stop();
+                    elements.metro.playStopBtn.textContent = 'Play';
+                    elements.metro.playStopBtn.classList.remove('playing');
+                } else {
+                    Tone.Transport.start();
+                    elements.metro.playStopBtn.textContent = 'Stop';
+                    elements.metro.playStopBtn.classList.add('playing');
+                }
+            });
+
+            elements.metro.bpmSlider.addEventListener('input', e => {
+                if (audioReady) Tone.Transport.bpm.value = e.target.value;
+                elements.metro.bpmDisplay.textContent = `${e.target.value} BPM`;
+            });
+            
+            elements.metro.volumeSlider.addEventListener('input', e => { if (metroSynth) metroSynth.volume.value = e.target.value; });
+            elements.metro.attackSlider.addEventListener('input', e => { if (metroSynth) metroSynth.envelope.attack = parseFloat(e.target.value); });
+            elements.metro.sustainSlider.addEventListener('input', e => { if (metroSynth) metroSynth.envelope.sustain = parseFloat(e.target.value); });
+            elements.metro.releaseSlider.addEventListener('input', e => { if (metroSynth) metroSynth.envelope.release = parseFloat(e.target.value); });
+            // Pitch is read directly in the loop, so no listener is needed here.
+
+            window.addEventListener('resize', resizeCanvases);
+
+            // --- DAW Transport Listeners (unchanged) ---
+            elements.daw.recordBtn.addEventListener('click', () => {
+                if (!audioReady) return;
+                // Note: This uses the same Tone.Transport as the metronome.
+                // You might want separate transports if they need to run independently.
+                if (!isRecording) {
+                    isRecording = true;
+                    elements.daw.recordBtn.classList.add('recording');
+                    elements.daw.recordBtn.querySelector('span:first-child').textContent = '';
+                    elements.daw.recordBtn.querySelector('span:last-child').classList.remove('hidden');
+                    recordingStartTime = Tone.Transport.seconds;
+                    currentRecording = [];
+                } else {
+                    isRecording = false;
+                    elements.daw.recordBtn.classList.remove('recording');
+                    elements.daw.recordBtn.querySelector('span:first-child').textContent = 'Record';
+                    elements.daw.recordBtn.querySelector('span:last-child').classList.add('hidden');
+                    if (currentRecording.length > 0) {
+                        const clip = { id: `clip-${Date.now()}`, duration: Tone.Transport.seconds - recordingStartTime, events: currentRecording };
+                        recordedClips.push(clip);
+                        addClipToBin(clip);
+                    }
+                }
+            });
+            elements.daw.playBtn.addEventListener('click', () => { if(audioReady) { Tone.Transport.start(); } });
+            elements.daw.stopBtn.addEventListener('click', () => {
+                if(audioReady) {
+                    Tone.Transport.stop();
+                    Tone.Transport.position = 0;
+                    scheduledParts.forEach(part => part.stop(0));
+                    padSynth.releaseAll(); inceptionSynth.releaseAll(); if(wobbleSynth) wobbleSynth.triggerRelease();
+                }
+            });
+            
+            Tone.Transport.on('start', () => {
+                elements.daw.playBtn.classList.add('bg-green-500');
+                // Also update metronome button state if started from DAW controls
+                elements.metro.playStopBtn.textContent = 'Stop';
+                elements.metro.playStopBtn.classList.add('playing');
+            });
+            Tone.Transport.on('stop', () => {
+                elements.daw.playBtn.classList.remove('bg-green-500');
+                 // Also update metronome button state if stopped from DAW controls
+                elements.metro.playStopBtn.textContent = 'Play';
+                elements.metro.playStopBtn.classList.remove('playing');
+            });
+        }
+
+        function recordEvent(data) {
+            if (!isRecording) return;
+            currentRecording.push({ time: Tone.Transport.seconds - recordingStartTime, ...data });
+        }
+
+        function addClipToBin(clip) {
+            const clipEl = document.createElement('div');
+            clipEl.className = 'clip';
+            clipEl.textContent = `Clip ${recordedClips.length}`;
+            clipEl.draggable = true;
+            clipEl.dataset.clipId = clip.id;
+            clipEl.addEventListener('dragstart', e => e.dataTransfer.setData('text/plain', clip.id));
+            elements.daw.clipBin.appendChild(clipEl);
+        }
+
+        document.querySelectorAll('.track').forEach(track => {
+            track.addEventListener('dragover', e => e.preventDefault());
+            track.addEventListener('drop', e => {
+                e.preventDefault();
+                const clipId = e.dataTransfer.getData('text/plain');
+                const clipData = recordedClips.find(c => c.id === clipId);
+                if (!clipData) return;
+                
+                const part = new Tone.Part((time, event) => {
+                    if (!audioReady) return;
+                    if(event.type === 'button-down'){
+                        if (noteMap[event.index]) padSynth.triggerAttack(noteMap[event.index], time);
+                        if (event.index === 4) wobbleSynth.triggerAttack("C1", time);
+                        if (event.index === 5) inceptionSynth.triggerAttack("C2", time);
+                        if (event.index === 10) kickSynth.triggerAttackRelease("C2", "8n", time);
+                        if (event.index === 11) cymbalSynth.triggerAttackRelease("C5", "4n", time);
+                    } else if (event.type === 'button-up'){
+                        if (noteMap[event.index]) padSynth.triggerRelease(noteMap[event.index], time);
+                        if (event.index === 4) wobbleSynth.triggerRelease(time);
+                        if (event.index === 5) inceptionSynth.triggerRelease("C2", time);
+                    }
+                }, clipData.events);
+                
+                const visualClip = document.createElement('div');
+                visualClip.className = 'timeline-clip';
+                const percentWidth = Math.max(10, (clipData.duration / TOTAL_TIMELINE_SECONDS) * 100);
+                visualClip.style.width = `${percentWidth}%`;
+                const trackRect = track.getBoundingClientRect();
+                const dropX = e.clientX - trackRect.left;
+                let leftPercent = (dropX / track.offsetWidth) * 100;
+                leftPercent = Math.min(leftPercent, 100 - percentWidth); 
+                visualClip.style.left = `${leftPercent}%`;
+                
+                let startTime = (leftPercent / 100) * TOTAL_TIMELINE_SECONDS;
+                part.start(startTime);
+                scheduledParts.push(part);
+
+                visualClip.addEventListener('dblclick', () => {
+                    part.dispose();
+                    visualClip.remove();
+                    const partIndex = scheduledParts.indexOf(part);
+                    if(partIndex > -1) scheduledParts.splice(partIndex, 1);
+                });
+
+                let isDragging = false;
+                let dragStartX = 0;
+                visualClip.addEventListener('mousedown', (e) => {
+                    isDragging = true;
+                    dragStartX = e.clientX;
+                    visualClip.style.cursor = 'grabbing';
+                    visualClip.style.zIndex = '20';
+                });
+
+                document.addEventListener('mousemove', (e) => {
+                    if (isDragging) {
+                        const dx = e.clientX - dragStartX;
+                        const newLeft = (visualClip.offsetLeft + dx) / track.offsetWidth * 100;
+                        visualClip.style.left = `${Math.max(0, Math.min(100 - percentWidth, newLeft))}%`;
+                        dragStartX = e.clientX;
+                    }
+                });
+
+                document.addEventListener('mouseup', () => {
+                    if (isDragging) {
+                         isDragging = false;
+                         visualClip.style.cursor = 'grab';
+                         visualClip.style.zIndex = '10';
+                         const newStartTime = (visualClip.offsetLeft / track.offsetWidth) * TOTAL_TIMELINE_SECONDS;
+                         part.stop(0);
+                         part.start(newStartTime);
+                    }
+                });
+                
+                track.appendChild(visualClip);
+            });
+        });
+
+        function gameLoop() {
+            animationFrameId = requestAnimationFrame(gameLoop);
+            animateParticles();
+            if (audioReady) {
+                updatePlayhead();
+            }
+            if (controllerIndex === null) return;
+            const gamepad = navigator.getGamepads()[controllerIndex];
+            if (!gamepad) { handleDisconnect(); return; }
+            handleControllerState(gamepad);
+        }
+        
+        function initialize() {
+            console.log("Initializing XIX...");
+            resizeCanvases();
+            setupEventListeners();
+            gameLoop();
+        }
+
+        initialize();
+
+    </script>
+</body>
+</html>
